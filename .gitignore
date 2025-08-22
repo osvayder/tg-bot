@@ -66,3 +66,8 @@ coverage.xml
 
 # pyenv
 .python-version
+
+# Security: ignore local env files
+.env
+.env.*
+!.env.example
