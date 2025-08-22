@@ -1,0 +1,134 @@
+diff --git a/bot/main.py b/bot/main.py
+index 1234567..abcdef8 100644
+--- a/bot/main.py
++++ b/bot/main.py
+@@ -140,11 +140,11 @@ async def fetch_raw_updates_for_chat(chat_id: int, topic_id: int | None, limit:
+     conn = await get_conn()
+     rows = await conn.fetch(
+         """
+         SELECT id, chat_id, message_id, user_id, text, created_at
+         FROM raw_updates
+         WHERE chat_id = $1
+           AND ($2::bigint IS NULL OR topic_id = $2)
+           AND (text IS NOT NULL AND LEFT(text,1) <> '/')
+-        ORDER BY created_at DESC
++        ORDER BY created_at ASC
+         LIMIT $3
+         """,
+         chat_id,
+@@ -164,7 +164,7 @@ async def fetch_raw_updates_by_ids(ids: list[int]):
+         SELECT id, chat_id, message_id, user_id, text, created_at
+         FROM raw_updates
+         WHERE id = ANY($1::bigint[])
+-        ORDER BY created_at DESC
++        ORDER BY created_at ASC
+         """,
+         ids,
+     )
+@@ -193,6 +193,31 @@ def _make_checklast_keyboard(rows) -> InlineKeyboardMarkup:
+     buttons.append([InlineKeyboardButton(text="Создать задачи", callback_data="cl:c")])
+     return InlineKeyboardMarkup(inline_keyboard=buttons)
+ 
++async def user_can_assign(telegram_id: int) -> bool:
++    """Check if user has can_assign permission in any project"""
++    try:
++        conn = await get_conn()
++        result = await conn.fetchval(
++            """
++            SELECT EXISTS(
++                SELECT 1 
++                FROM core_user u
++                JOIN core_projectmember pm ON u.id = pm.user_id
++                JOIN core_role r ON pm.role_id = r.id
++                WHERE u.telegram_id = $1 AND r.can_assign = true
++            )
++            """,
++            telegram_id
++        )
++        await conn.close()
++        return result
++    except Exception as e:
++        print(f"Permission check error: {e}")
++        return False
++
++async def user_can_close(telegram_id: int) -> bool:
++    """Check if user has can_close permission - for future use"""
++    return await user_can_assign(telegram_id)  # Simplified for now
++
+ async def _create_task_minimal(title: str, description: str | None, responsible_username: str | None):
+     conn = await get_conn()
+     await conn.execute(
+@@ -215,7 +240,8 @@ async def ensure_schema():
+                 message_id bigint,
+                 user_id bigint,
+                 text text,
+                 payload jsonb,
++                topic_id bigint,
+                 created_at timestamptz DEFAULT now()
+             );
+             """
+@@ -322,6 +348,11 @@ async def set_role(msg: Message, command: CommandObject):
+ @dp.message(Command("newtask", ignore_mention=True))
+ async def new_task(msg: Message, command: CommandObject):
+     await log_raw_update(msg)
++    
++    # Check permissions
++    if msg.from_user and not await user_can_assign(msg.from_user.id):
++        return await safe_reply(msg, "❌ У вас нет прав на создание задач")
++    
+     if not command.args:
+         return await safe_reply(msg, "Usage: /newtask @user text [YYYY-MM-DD]")
+     try:
+@@ -370,6 +401,11 @@ async def new_task(msg: Message, command: CommandObject):
+ @dp.message(Command("closetask", ignore_mention=True))
+ async def close_task(msg: Message, command: CommandObject):
+     await log_raw_update(msg)
++    
++    # Check permissions
++    if msg.from_user and not await user_can_close(msg.from_user.id):
++        return await safe_reply(msg, "❌ У вас нет прав на закрытие задач")
++    
+     if not command.args or not command.args.lstrip("#").isdigit():
+         return await safe_reply(msg, "Usage: /closetask #123")
+     task_id = int(command.args.lstrip("#"))
+@@ -416,6 +452,11 @@ async def _do_checklast(msg: Message):
+ @dp.message(Command("checklast", ignore_mention=True))
+ async def checklast_command(msg: Message):
+     await log_raw_update(msg)
++    
++    # Check permissions
++    if msg.from_user and not await user_can_assign(msg.from_user.id):
++        return await safe_reply(msg, "❌ У вас нет прав на создание задач")
++    
+     await _do_checklast(msg)
+ 
+ 
+@@ -451,7 +492,11 @@ async def checklast_create(cb: CallbackQuery):
+         )
+         created += 1
+     await r.delete(key)
+-    await safe_reply(cb.message, f"Создано задач: {created}")
++    
++    # Use cb.answer for toast notification
++    await cb.answer(f"Создано задач: {created}", show_alert=False)
++    # Update message to show completion
++    await cb.message.edit_text(f"{cb.message.text}\n\n✅ Создано задач: {created}")
+ 
+ async def main():
+     await ensure_schema()
+diff --git a/admin/core/models.py b/admin/core/models.py
+index 1234567..abcdef9 100644
+--- a/admin/core/models.py
++++ b/admin/core/models.py
+@@ -102,6 +102,11 @@ class Task(models.Model):
+     status = models.CharField(max_length=16, choices=STATUS_CHOICES, default="TODO")
+     created_at = models.DateTimeField(auto_now_add=True)
+     updated_at = models.DateTimeField(auto_now=True)
++    
++    # Source tracking fields
++    source_chat_id = models.BigIntegerField(null=True, blank=True, db_index=True)
++    source_message_id = models.BigIntegerField(null=True, blank=True)
++    source_topic_id = models.BigIntegerField(null=True, blank=True)
+ 
+     def __str__(self):
+         return f"#{self.id}: {self.title[:40]}"

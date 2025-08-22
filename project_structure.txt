@@ -1,0 +1,119 @@
+PROJECT STRUCTURE (FULL): tg-bot
+================================
+Path: /Users/osvayder/Downloads/tg-bot
+Generated: Wed Aug 20 15:39:38 +04 2025
+Mode: SHOW ALL FILES (no filtering)
+
+ПОЛНАЯ ФАЙЛОВАЯ СТРУКТУРА:
+==========================
+tg-bot/
+├── .claude
+│   └── settings.local.json (JSON) [171 B]
+├── admin
+│   ├── core
+│   │   ├── migrations
+│   │   │   ├── 0001_initial.py (Python) [1.3 KB]
+│   │   │   ├── 0002_task_source_fields.py (Python) [700 B]
+│   │   │   └── __init__.py (Python) [0 B]
+│   │   ├── templates
+│   │   │   └── admin
+│   │   │       └── core
+│   │   │           └── department
+│   │   │               └── change_form.html (HTML) [346 B]
+│   │   ├── .DS_Store [6.0 KB]
+│   │   ├── __init__.py (Python) [0 B]
+│   │   ├── admin.py (Python) [28.7 KB]
+│   │   ├── apps.py (Python) [135 B]
+│   │   └── models.py (Python) [16.1 KB]
+│   ├── .DS_Store [6.0 KB]
+│   ├── __init__.py (Python) [0 B]
+│   ├── Dockerfile [183 B]
+│   ├── manage.py (Python) [210 B]
+│   ├── requirements.txt (Text) [77 B]
+│   ├── settings.py (Python) [1.6 KB]
+│   └── urls.py (Python) [155 B]
+├── bot
+│   ├── Dockerfile [209 B]
+│   ├── main.py (Python) [45.4 KB]
+│   └── requirements.txt (Text) [43 B]
+├── .DS_Store [8.0 KB]
+├── .env [383 B]
+├── .env.example (Example) [433 B]
+├── create_structure.command (Command) [3.4 KB]
+├── create_structure_text.command (Command) [7.4 KB]
+├── docker-compose.yml (YAML) [469 B]
+├── manage.ps1 (PowerShell) [836 B]
+├── patch_s0_final.diff (Diff/Patch) [5.2 KB]
+└── project_structure.txt (Text) [3.2 KB]
+
+
+ПОЛНАЯ СТАТИСТИКА ПРОЕКТА:
+==========================
+Всего директорий: 9
+Всего файлов: 29
+Скрытых файлов: 5
+Общий размер: 136.5 KB
+
+ВСЕ ТИПЫ ФАЙЛОВ:
+  .py: 12 файлов
+  [no extension]: 6 файлов
+  .txt: 3 файлов
+  .command: 2 файлов
+  .ps1: 1 файлов
+  .diff: 1 файлов
+  .yml: 1 файлов
+  .example: 1 файлов
+  .html: 1 файлов
+  .json: 1 файлов
+
+ПОЛНЫЙ СПИСОК ФАЙЛОВ:
+====================
+
+📁 [root]/
+  • .DS_Store
+  • .env
+  • .env.example
+  • create_structure.command
+  • create_structure_text.command
+  • docker-compose.yml
+  • manage.ps1
+  • patch_s0_final.diff
+  • project_structure.txt
+
+📁 admin/
+  • .DS_Store
+  • Dockerfile
+  • __init__.py
+  • manage.py
+  • requirements.txt
+  • settings.py
+  • urls.py
+
+📁 admin/core/
+  • .DS_Store
+  • __init__.py
+  • admin.py
+  • apps.py
+  • models.py
+
+📁 admin/core/migrations/
+  • 0001_initial.py
+  • 0002_task_source_fields.py
+  • __init__.py
+
+📁 admin/core/templates/
+
+📁 admin/core/templates/admin/
+
+📁 admin/core/templates/admin/core/
+
+📁 admin/core/templates/admin/core/department/
+  • change_form.html
+
+📁 .claude/
+  • settings.local.json
+
+📁 bot/
+  • Dockerfile
+  • main.py
+  • requirements.txt

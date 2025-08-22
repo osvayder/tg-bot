@@ -1,0 +1,260 @@
+{% extends "admin/change_form.html" %}
+
+{% block extrahead %}
+  {{ block.super }}
+  <style>
+    /* показываем только "глазик" у FK-виджетов */
+    .related-widget-wrapper-link.add-related,
+    .related-widget-wrapper-link.change-related { display: none !important; }
+
+    /* свернутый группированный вид */
+    #dm-toolbar { margin:12px 0; padding:8px 10px; background:#263238; border-radius:6px; }
+    #dm-summary { margin-top:8px; }
+    .dm-card { background:#1f2a30; border-radius:8px; padding:10px 12px; margin-bottom:8px; }
+    .dm-title { font-weight:600; margin-bottom:6px; display:flex; align-items:center; gap:8px; }
+    .dm-tag { font-size:12px; padding:2px 6px; border-radius:10px; background:#2e3b40; opacity:.9; }
+    .dm-chips { display:flex; flex-wrap:wrap; gap:6px; }
+    .dm-chip { background:#2b3940; border-radius:14px; padding:2px 8px; font-size:13px; }
+    .dm-chip small { opacity:.85; }
+    .dm-actions { margin-top:6px; }
+    .dm-actions a { font-size:12px; opacity:.9; cursor:pointer; color:#70b1ff; }
+  </style>
+
+  {# дерево департаментов пробрасывается из UserAdmin.change_view #}
+  {{ dep_tree|json_script:"dep-tree" }}
+
+  <script>
+  document.addEventListener('DOMContentLoaded', function () {
+    const depTree = JSON.parse(document.getElementById('dep-tree')?.textContent || "[]");
+    const byParent = {};
+    for (const d of depTree) {
+      const pid = d.parent_id || 0;
+      if (!byParent[pid]) byParent[pid] = [];
+      byParent[pid].push(d);
+    }
+    Object.values(byParent).forEach(arr => arr.sort((a,b)=>a.name.localeCompare(b.name,'ru')));
+
+    // Настройка каскада для инлайна
+    function setupCascade() {
+      document.querySelectorAll('tr.dynamic-departmentmember_set, tr.has_original').forEach(row => {
+        if (!row.classList.contains('dynamic-departmentmember_set')) return;
+        
+        const parentSel = row.querySelector('select[name$="-parent_department"]');
+        const childSel  = row.querySelector('select[name$="-department"]');
+        if (!parentSel || !childSel) return;
+        
+        // Пропускаем если уже настроено
+        if (parentSel.dataset.cascadeSetup) return;
+        parentSel.dataset.cascadeSetup = 'true';
+
+        // функция заполнения поддепартаментов
+        const fillChildren = () => {
+          const pid = parentSel.value || "0";
+          const list = byParent[parseInt(pid,10)] || [];
+          const current = childSel.value;
+          childSel.innerHTML = "";
+          const optAll = new Option("— для всех поддепартаментов —", "", true, false);
+          childSel.add(optAll);
+          list.forEach(d => childSel.add(new Option(d.name, d.id, false, d.id == current)));
+        };
+
+        // при загрузке и при изменении
+        fillChildren();
+        parentSel.addEventListener('change', fillChildren);
+      });
+    }
+
+    // Группированный вид департаментов
+    const groupBox = document.getElementById('departmentmember_set-group');  // блок инлайна
+    if (!groupBox) {
+      // Если нет инлайна, только настраиваем каскад
+      setupCascade();
+      const observer = new MutationObserver(setupCascade);
+      const targetNode = document.querySelector('.inline-group');
+      if (targetNode) {
+        observer.observe(targetNode, { childList: true, subtree: true });
+      }
+      return;
+    }
+
+    // вставляем тулбар и контейнер для карточек
+    const toolbar = document.createElement('div');
+    toolbar.id = 'dm-toolbar';
+    toolbar.innerHTML = `
+      <label style="cursor:pointer;">
+        <input type="checkbox" id="dm-collapse" checked>
+        Свернуть по департаментам
+      </label>
+    `;
+    groupBox.parentNode.insertBefore(toolbar, groupBox);
+
+    const summary = document.createElement('div');
+    summary.id = 'dm-summary';
+    toolbar.parentNode.insertBefore(summary, groupBox);
+
+    const collapseChk = toolbar.querySelector('#dm-collapse');
+
+    function collectRows() {
+      const rows = groupBox.querySelectorAll('tr.dynamic-departmentmember_set, tr.has_original.dynamic-departmentmember_set');
+      const groups = {}; // parent_id -> {parentLabel, items:[{childId,childLabel,roleLabel,row}]}
+      
+      rows.forEach(row => {
+        // Пропускаем удаленные строки
+        const deleteChk = row.querySelector('input[type="checkbox"][name$="-DELETE"]');
+        if (deleteChk && deleteChk.checked) return;
+        
+        const parentSel = row.querySelector('select[name$="-parent_department"]');
+        const childSel  = row.querySelector('select[name$="-department"]');
+        const roleSel   = row.querySelector('select[name$="-role"]');
+        if (!parentSel) return;
+
+        const pid = parentSel.value || "0";
+        const pLbl = parentSel.options[parentSel.selectedIndex]?.text?.trim() || "(нет)";
+        const childId = childSel?.value || ""; // пусто = "для всех поддепартаментов"
+        const childLbl = childSel?.value
+              ? (childSel.options[childSel.selectedIndex]?.text?.trim() || "(нет)")
+              : "— для всех поддепартаментов —";
+        const roleLbl  = roleSel?.options[roleSel.selectedIndex]?.text?.trim() || "—";
+        
+        if (!groups[pid]) {
+          groups[pid] = { parentLabel: pLbl, items: [] };
+        }
+        groups[pid].items.push({
+          childId, childLbl, roleLbl, row
+        });
+      });
+      return groups;
+    }
+
+    function renderSummary() {
+      const groups = collectRows();
+      summary.innerHTML = '';
+
+      for (const [pid, g] of Object.entries(groups)) {
+        if (!g.items.length) continue;
+        
+        // список реальных детей у этого родителя
+        const children = (byParent[parseInt(pid,10)] || []).map(x => String(x.id));
+        const selectedChildIds = new Set(g.items.filter(i => i.childId).map(i => String(i.childId)));
+        const isFullCoverage = children.length > 0 && children.every(id => selectedChildIds.has(id));
+
+        // карточка
+        const card = document.createElement('div');
+        card.className = 'dm-card';
+
+        // заголовок
+        const title = document.createElement('div');
+        title.className = 'dm-title';
+        title.textContent = g.parentLabel;
+        if (isFullCoverage) {
+          const tag = document.createElement('span');
+          tag.className = 'dm-tag';
+          tag.textContent = 'все поддепартаменты';
+          title.appendChild(tag);
+        }
+        card.appendChild(title);
+
+        // чипы поддепартаментов с ролями
+        const chips = document.createElement('div');
+        chips.className = 'dm-chips';
+        
+        // если есть конкретные поддепартаменты
+        const concreteItems = g.items.filter(i => i.childId);
+        if (concreteItems.length > 0) {
+          concreteItems
+            .sort((a,b)=>a.childLbl.localeCompare(b.childLbl,'ru'))
+            .forEach(i => {
+              const chip = document.createElement('span');
+              chip.className = 'dm-chip';
+              chip.innerHTML = `${i.childLbl} <small>— ${i.roleLbl}</small>`;
+              chips.appendChild(chip);
+            });
+        } else {
+          // Только "для всех поддепартаментов"
+          const hint = document.createElement('span');
+          hint.className = 'dm-chip';
+          hint.textContent = '— для всех поддепартаментов —';
+          chips.appendChild(hint);
+        }
+        card.appendChild(chips);
+
+        // действия
+        const act = document.createElement('div');
+        act.className = 'dm-actions';
+        const a = document.createElement('a');
+        a.href = '#';
+        a.textContent = 'Редактировать';
+        a.addEventListener('click', (e)=>{
+          e.preventDefault();
+          collapseChk.checked = false;
+          applyCollapse();
+          // прокрутка к первой строке этой группы
+          const row = g.items[0]?.row;
+          if (row) row.scrollIntoView({behavior:'smooth', block:'center'});
+        });
+        act.appendChild(a);
+        card.appendChild(act);
+
+        summary.appendChild(card);
+      }
+      
+      if (!summary.childElementCount) {
+        summary.innerHTML = '<div style="opacity:0.6; padding:10px;">Нет участия в департаментах</div>';
+      }
+    }
+
+    function applyCollapse() {
+      const collapsed = collapseChk.checked;
+      groupBox.style.display = collapsed ? 'none' : '';
+      summary.style.display  = collapsed ? '' : 'none';
+      if (collapsed) renderSummary();
+    }
+
+    // Перестраиваем сводку при изменениях в строках
+    groupBox.addEventListener('change', (e)=>{
+      if (!collapseChk.checked) return;
+      setTimeout(() => renderSummary(), 50); // небольшая задержка для обновления DOM
+    });
+
+    // Настройка каскада и наблюдение за новыми строками
+    setupCascade();
+    const observer = new MutationObserver(() => {
+      setupCascade();
+      if (collapseChk.checked) {
+        setTimeout(() => renderSummary(), 50);
+      }
+    });
+    const targetNode = document.querySelector('.inline-group');
+    if (targetNode) {
+      observer.observe(targetNode, { childList: true, subtree: true });
+    }
+
+    // стартовое состояние
+    applyCollapse();
+    collapseChk.addEventListener('change', applyCollapse);
+  });
+  </script>
+{% endblock %}
+
+{% block after_field_sets %}
+  {% if request.user.is_superuser and original %}
+  <div style="margin:12px 0; padding:10px; background:#263238; border-radius:6px;">
+    <b>Быстрые действия:</b>
+    <form method="post" action="" style="margin-top:8px;">
+      {% csrf_token %}
+      <button type="submit" name="_remove_from_all_departments" class="button"
+              onclick="return confirm('Убрать пользователя из всех департаментов?')" 
+              style="margin-right: 10px;">
+        Убрать из всех департаментов
+      </button>
+      <button type="submit" name="_remove_from_all_projects" class="button"
+              onclick="return confirm('Убрать пользователя из всех проектов? Это также удалит привязки к департаментам через ProjectMember.')">
+        Убрать из всех проектов
+      </button>
+    </form>
+    <small style="opacity:.8; display:block; margin-top:8px;">
+      Удаление из проектов также снимет привязки департаментов через ProjectMember.
+    </small>
+  </div>
+  {% endif %}
+{% endblock %}

@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir:*)",
+      "Bash(.manage.ps1 dev-up)",
+      "Bash(powershell:*)",
+      "Bash(docker:*)"
+    ],
+    "deny": []
+  }
+}

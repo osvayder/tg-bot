@@ -1,0 +1,24 @@
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: bot
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: botdb
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    restart: unless-stopped
+  redis:
+    image: redis:7
+    restart: unless-stopped
+  bot:
+    build: ./bot
+    env_file: .env
+    depends_on: [db, redis]
+  admin:
+    build: ./admin
+    env_file: .env
+    depends_on: [db]
+    ports: [ "8000:8000" ]
+volumes:
+  db-data:

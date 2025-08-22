@@ -1,0 +1,73 @@
+{% extends "admin/change_form.html" %}
+{% load i18n admin_urls %}
+
+{% block extrahead %}
+  {{ block.super }}
+  <style>
+    /* Спрятать кнопку «Добавить ещё один Департамент» в инлайне детей */
+    #department_set-group .add-row { display: none !important; }
+    /* Спрятать плюсик «добавить связанный объект» именно для Department */
+    a.related-widget-wrapper-link.add-related[href*="/core/department/add/"] { display: none !important; }
+  </style>
+{% endblock %}
+
+{% block object-tools-items %}
+  {{ block.super }}
+  {% if original and can_add_child %}
+    <li>
+      <a class="addlink" href="{% url 'admin:core_department_add' %}?parent={{ original.pk }}">
+        Добавить поддепартамент
+      </a>
+    </li>
+  {% endif %}
+{% endblock %}
+
+{% block after_field_sets %}
+  {% if original %}
+  <div style="margin:12px 0; padding:8px 10px; background:#263238; border-radius:6px;">
+    <label style="cursor:pointer;">
+      <input id="toggle-chat-users" type="checkbox" {% if show_chat_users %}checked{% endif %}>
+      Показать всех участников проекта (ProjectMember)
+    </label>
+    <small style="opacity:.8; margin-left:8px;">
+      Выключено — только те, кто уже состоит в департаментах проекта.
+    </small>
+  </div>
+  {% endif %}
+  <script>
+  (function(){
+    const el = document.getElementById('toggle-chat-users');
+    if(!el) return;
+    el.addEventListener('change', function(){
+      const url = new URL(window.location.href);
+      if(this.checked) url.searchParams.set('show_chat_users','1');
+      else url.searchParams.delete('show_chat_users');
+      window.location.href = url.toString();
+    });
+  })();
+  
+  // Переименовать текст кнопки "Добавить еще один"
+  document.addEventListener('DOMContentLoaded', function() {
+    const addButtons = document.querySelectorAll('.add-row a');
+    addButtons.forEach(btn => {
+      if (btn.textContent.includes('Департамент') || btn.textContent.includes('Поддепартамент')) {
+        btn.textContent = 'Добавить поддепартамент';
+      }
+    });
+  });
+  </script>
+{% endblock %}
+
+{% block submit_buttons_bottom %}
+<div class="submit-row">
+  <input type="submit" class="default" value="СОХРАНИТЬ" name="_continue">
+  <input type="submit" value="Сохранить и вернуться в дашборд" name="_save_and_dashboard">
+</div>
+{% endblock %}
+
+{% block submit_buttons_top %}
+<div class="submit-row">
+  <input type="submit" class="default" value="СОХРАНИТЬ" name="_continue">
+  <input type="submit" value="Сохранить и вернуться в дашборд" name="_save_and_dashboard">
+</div>
+{% endblock %}
