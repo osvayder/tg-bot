@@ -289,11 +289,8 @@ class TgGroupAdmin(admin.ModelAdmin):
         return created
 
     def save_model(self, request, obj: TgGroup, form, change):
-        # Автонаследование проекта от департамента (как обсуждали ранее)
-        dept = getattr(obj, "department", None)
-        if dept and getattr(dept, "project_id", None):
-            obj.project_id = dept.project_id
-
+        """Сохранение группы без обращения к несуществующим полям"""
+        # Если есть FK на проект — обычное сохранение
         super().save_model(request, obj, form, change)
 
         # После сохранения: если у группы есть проект — подтянуть ProjectMember из логов
@@ -442,7 +439,6 @@ class UserAdmin(admin.ModelAdmin):
     # текущие поля оставляем; добавляем сводку
     readonly_fields = ("summary_html",)
     inlines = [UserProjectMemberInline, UserDepartmentMemberInline]
-    change_form_template = "admin/core/user/change_form.html"
 
     fieldsets = (
         ("Профиль", {

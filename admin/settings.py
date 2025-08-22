@@ -1,8 +1,14 @@
 import os
+from pathlib import Path
 
-SECRET_KEY = "change-me"
-DEBUG = True
-ALLOWED_HOSTS = ["*"]
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-CHANGE-ME-IN-PRODUCTION')
+DEBUG = os.environ.get('DJANGO_DEBUG', 'False').lower() in ('true','1','yes','on')
+ALLOWED_HOSTS = [
+    h.strip() for h in os.environ.get('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
+    if h.strip()
+]
 INSTALLED_APPS = [
     "django.contrib.contenttypes",
     "django.contrib.auth",
@@ -13,13 +19,13 @@ INSTALLED_APPS = [
     "core",
 ]
 DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": "botdb",
-        "USER": "bot",
-        "PASSWORD": os.getenv("DB_PASSWORD"),
-        "HOST": "db",
-        "PORT": 5432,
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.environ.get('POSTGRES_DB', 'botdb'),
+        'USER': os.environ.get('POSTGRES_USER', 'bot'),
+        'PASSWORD': os.environ.get('POSTGRES_PASSWORD', os.environ.get('DB_PASSWORD', 'botpass')),
+        'HOST': os.environ.get('POSTGRES_HOST', os.environ.get('DB_HOST', 'db')),
+        'PORT': os.environ.get('POSTGRES_PORT', os.environ.get('DB_PORT', '5432')),
     }
 }
 ROOT_URLCONF = "urls"
@@ -55,7 +61,7 @@ STATIC_ROOT = "/app/static"
 
 # Internationalization
 LANGUAGE_CODE = 'ru-RU'
-TIME_ZONE = 'Europe/Moscow'
+TIME_ZONE = os.environ.get('TIMEZONE', 'Europe/Moscow')
 USE_I18N = True
 USE_L10N = True
 USE_TZ = True

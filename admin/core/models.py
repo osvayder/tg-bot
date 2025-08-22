@@ -508,3 +508,29 @@ class DepartmentMember(models.Model):
 
     def __str__(self):
         return f"{self.user} — {self.role or 'без роли'}"
+
+
+class RawUpdate(models.Model):
+    """Логирование сырых обновлений от Telegram"""
+    chat_id = models.BigIntegerField()
+    message_id = models.BigIntegerField(null=True, blank=True)
+    user_id = models.BigIntegerField(null=True, blank=True)
+    username = models.CharField(max_length=255, null=True, blank=True)
+    text = models.TextField(blank=True, default="")
+    topic_id = models.BigIntegerField(null=True, blank=True)
+    payload = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'raw_updates'
+        indexes = [
+            models.Index(fields=['chat_id', 'created_at'], name='idx_raw_chat_created'),
+            models.Index(fields=['chat_id', 'message_id'], name='idx_raw_chat_msg'),
+            models.Index(fields=['created_at'], name='idx_raw_created'),
+        ]
+        ordering = ['-created_at']
+        verbose_name = "Raw Update"
+        verbose_name_plural = "Raw Updates"
+
+    def __str__(self):
+        return f"Update {self.chat_id} at {self.created_at}"
