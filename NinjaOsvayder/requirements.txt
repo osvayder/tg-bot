@@ -1,0 +1,16 @@
+# Core dependencies
+python-telegram-bot==20.7
+python-dotenv==1.0.0
+
+# Google Cloud Speech-to-Text
+google-cloud-speech==2.23.0
+google-auth==2.25.2
+google-auth-oauthlib==1.2.0
+
+# Audio/Video processing
+moviepy==1.0.3
+pydub==0.25.1
+ffmpeg-python==0.2.0
+
+# Additional utilities
+aiofiles==23.2.1

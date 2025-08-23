@@ -541,6 +541,11 @@ class RawUpdate(models.Model):
     class Meta:
         managed = False  # Django не управляет этой таблицей
         db_table = 'raw_updates'
+        indexes = [
+            models.Index(fields=['chat_id', 'created_at'], name='idx_raw_chat_created'),
+            models.Index(fields=['chat_id', 'message_id'], name='idx_raw_chat_msg'),
+            models.Index(fields=['created_at'], name='idx_raw_created'),
+        ]
         ordering = ['-created_at']
         verbose_name = "Raw Update"
         verbose_name_plural = "Raw Updates"
