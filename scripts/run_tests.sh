@@ -15,6 +15,21 @@ fi
 
 svc="admin"
 
+# Wait for service to be ready
+wait_for_service() {
+  echo "Waiting for $svc service to be ready..."
+  for i in {1..30}; do
+    if $compose exec -T $svc python -c "print('Service ready')" 2>/dev/null; then
+      echo "Service $svc is ready"
+      return 0
+    fi
+    echo "Waiting... ($i/30)"
+    sleep 2
+  done
+  echo "Service $svc failed to become ready"
+  return 1
+}
+
 usage() {
   cat <<'EOF'
 Usage: scripts/run_tests.sh <pre-commit|unit|integration|e2e-telegram|all>
@@ -43,6 +58,10 @@ load_env_test() {
 }
 
 cmd="${1:-}"; shift || true
+
+# Ensure service is ready before running tests
+wait_for_service || exit 1
+
 case "$cmd" in
   pre-commit)
     install_unit_deps
