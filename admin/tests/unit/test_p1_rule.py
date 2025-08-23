@@ -127,7 +127,7 @@ class TestP1Rule:
             assert "unique" in constraint.lower()
             assert "role" in constraint.lower()
     
-    @pytest.mark.parametrize("scenario,should_fail", [
+    @pytest.mark.parametrize("dept_before,dept_after,should_fail", [
         # (department_before, department_after, should_fail)
         (None, None, False),  # Общий → Общий (OK)
         (None, 10, False),    # Общий → Департамент (OK, но удалит общий)
@@ -135,9 +135,8 @@ class TestP1Rule:
         (10, 20, False),      # Департамент → Другой департамент (OK)
         (10, 10, False),      # Департамент → Тот же (OK)
     ])
-    def test_p1_transitions(self, scenario, should_fail):
+    def test_p1_transitions(self, dept_before, dept_after, should_fail):
         """Тестирование различных переходов между уровнями"""
-        dept_before, dept_after = scenario
         
         # Симулируем проверку
         if dept_after is None and dept_before is not None:
