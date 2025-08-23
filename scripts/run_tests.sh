@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+# Set PYTHONPATH for module imports
+export PYTHONPATH="${PYTHONPATH:-.}:$(pwd)"
+
 # autodetect docker compose CLI
 if command -v docker compose >/dev/null 2>&1; then
   compose="docker compose"
