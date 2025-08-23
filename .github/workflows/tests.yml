@@ -6,8 +6,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker version && docker compose version
-      - run: docker compose up -d
-      - run: ./scripts/run_tests.sh unit
+      - run: docker compose up -d --wait
+      - run: bash ./scripts/run_tests.sh unit
 
   integration:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
@@ -15,8 +15,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker version && docker compose version
-      - run: docker compose up -d
-      - run: ./scripts/run_tests.sh integration
+      - run: docker compose up -d --wait
+      - run: bash ./scripts/run_tests.sh integration
 
   e2e-telegram:
     if: github.event_name == 'workflow_dispatch'
@@ -34,7 +34,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker version && docker compose version
-      - run: docker compose up -d
+      - run: docker compose up -d --wait
       - name: Create .env.test
         run: |
           cat > .env.test <<'EOF'
@@ -47,4 +47,4 @@ jobs:
           TEST_GROUP_ID=${TEST_GROUP_ID}
           TEST_GROUP_WITH_TOPICS_ID=${TEST_GROUP_WITH_TOPICS_ID}
           EOF
-      - run: ./scripts/run_tests.sh e2e-telegram
+      - run: bash ./scripts/run_tests.sh e2e-telegram
