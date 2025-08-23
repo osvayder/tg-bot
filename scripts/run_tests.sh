@@ -1,22 +1,28 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-compose="docker-compose"
+# autodetect docker compose CLI
+if command -v docker compose >/dev/null 2>&1; then
+  compose="docker compose"
+elif command -v docker-compose >/dev/null 2>&1; then
+  compose="docker-compose"
+else
+  echo "docker compose/docker-compose not found"; exit 127
+fi
+
 svc="admin"
 
 usage() {
   cat <<'EOF'
 Usage: scripts/run_tests.sh <pre-commit|unit|integration|e2e-telegram|all>
-
-  pre-commit   - быстрые unit (≤30 сек)
-  unit         - все unit
-  integration  - интеграция + E2E админка (Playwright)
-  e2e-telegram - реальные Telegram E2E (нужен .env.test)
-  all          - unit + integration (+ e2e-telegram если ENABLE_E2E_TELEGRAM=1 и .env.test найден)
 EOF
 }
 
-ensure_deps() {
+install_unit_deps() {
+  $compose exec -T $svc python -m pip install -q pytest pytest-asyncio==0.21.0 pytest-django
+}
+
+install_full_deps() {
   $compose exec -T $svc python -m pip install -r requirements-test.txt
 }
 
@@ -29,43 +35,42 @@ run_pytest() {
 }
 
 load_env_test() {
-  if [[ ! -f .env.test ]]; then
-    echo "Нет .env.test — заполните по шаблону .env.test.example"; exit 2
-  fi
-  # Экспортим пары KEY=VALUE из .env.test
+  [[ -f .env.test ]] || { echo "Нет .env.test"; exit 2; }
   export $(grep -v '^#' .env.test | xargs -d '\n' -I{} echo {})
 }
 
-case "${1:-}" in
+cmd="${1:-}"; shift || true
+case "$cmd" in
   pre-commit)
+    install_unit_deps
     run_pytest tests/unit -q
     ;;
   unit)
-    ensure_deps
+    install_unit_deps
     run_pytest tests/unit -q
     ;;
   integration)
-    ensure_deps
+    install_full_deps
     ensure_playwright
     run_pytest tests/integration tests/e2e/admin -v
     ;;
   e2e-telegram)
-    ensure_deps
+    install_full_deps
     load_env_test
     run_pytest tests/e2e/telegram -v
     ;;
   all)
-    ensure_deps
+    install_unit_deps
     run_pytest tests/unit -q
+    install_full_deps
     ensure_playwright
     run_pytest tests/integration tests/e2e/admin -v
     if [[ "${ENABLE_E2E_TELEGRAM:-0}" == "1" && -f .env.test ]]; then
       load_env_test
       run_pytest tests/e2e/telegram -v
     else
-      echo "Telegram E2E пропущены (ENABLE_E2E_TELEGRAM!=1 или нет .env.test)"
+      echo "Telegram E2E пропущены"
     fi
     ;;
-  *)
-    usage; exit 1;;
+  *) usage; exit 1;;
 esac
