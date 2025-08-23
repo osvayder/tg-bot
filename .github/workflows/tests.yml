@@ -1,0 +1,48 @@
+name: Tests
+on: [push, pull_request, workflow_dispatch]
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker-compose up -d
+      - run: ./scripts/run_tests.sh unit
+
+  integration:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker-compose up -d
+      - run: ./scripts/run_tests.sh integration
+
+  e2e-telegram:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    env:
+      ENABLE_E2E_TELEGRAM: "1"
+      TEST_API_ID: ${{ secrets.TEST_API_ID }}
+      TEST_API_HASH: ${{ secrets.TEST_API_HASH }}
+      TEST_SESSION_STRING: ${{ secrets.TEST_SESSION_STRING }}
+      TEST_PHONE: ${{ secrets.TEST_PHONE }}
+      TEST_BOT_USERNAME: ${{ secrets.TEST_BOT_USERNAME }}
+      TEST_BOT_TOKEN: ${{ secrets.TEST_BOT_TOKEN }}
+      TEST_GROUP_ID: ${{ secrets.TEST_GROUP_ID }}
+      TEST_GROUP_WITH_TOPICS_ID: ${{ secrets.TEST_GROUP_WITH_TOPICS_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker-compose up -d
+      - name: Create .env.test
+        run: |
+          cat > .env.test <<'EOF'
+          TEST_API_ID=${TEST_API_ID}
+          TEST_API_HASH=${TEST_API_HASH}
+          TEST_PHONE=${TEST_PHONE}
+          TEST_SESSION_STRING=${TEST_SESSION_STRING}
+          TEST_BOT_USERNAME=${TEST_BOT_USERNAME}
+          TEST_BOT_TOKEN=${TEST_BOT_TOKEN}
+          TEST_GROUP_ID=${TEST_GROUP_ID}
+          TEST_GROUP_WITH_TOPICS_ID=${TEST_GROUP_WITH_TOPICS_ID}
+          EOF
+      - run: ./scripts/run_tests.sh e2e-telegram

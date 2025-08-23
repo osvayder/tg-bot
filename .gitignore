@@ -81,4 +81,3 @@ test_session.session
 htmlcov/
 .coverage
 .pytest_cache/
-

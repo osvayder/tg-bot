@@ -1,6 +1,6 @@
 # Основные тестовые зависимости
 pytest==8.0.0
-pytest-asyncio==0.23.0
+pytest-asyncio==0.21.0
 pytest-cov==4.1.0
 pytest-django==4.8.0
 pytest-timeout==2.2.0
@@ -11,18 +11,18 @@ pytest-playwright==0.4.4
 
 # E2E тестирование Telegram
 pyrogram==2.0.106
-tgcrypto==1.2.5  # Ускорение шифрования
+tgcrypto==1.2.5
 
 # Утилиты для тестов
-faker==22.0.0  # Генерация тестовых данных
-freezegun==1.4.0  # Мокирование времени
-factory-boy==3.3.0  # Фабрики для моделей
+faker==22.0.0
+freezegun==1.4.0
+factory-boy==3.3.0
 
 # Моки и заглушки
 pytest-mock==3.12.0
-aioresponses==0.7.6  # Мокирование HTTP запросов
+aioresponses==0.7.6
 
-# Отчеты и покрытие
+# Отчёты и покрытие
 coverage[toml]==7.4.0
 pytest-html==4.1.1
 
