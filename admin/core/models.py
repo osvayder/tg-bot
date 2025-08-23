@@ -174,24 +174,25 @@ class Department(models.Model):
         return level
 
     def clean(self):
-        """
-        Дочерний департамент наследует проект родителя.
-        Ошибку даём как неполевую, чтобы форма без поля `project` не падала.
-        """
+        """Валидация перед сохранением"""
         from django.core.exceptions import ValidationError
         
         # Проверка максимальной вложенности (2 уровня)
         if self.parent and self.parent.parent_id:
             raise ValidationError({'parent': 'Максимум 2 уровня: Родитель → Поддепартамент.'})
         
-        # наследуем проект от родителя (если создаём дочку)
-        if self.parent_id and self.parent:
-            if not self.project_id:
+        # Для поддепартамента проект обязателен (берется от родителя)
+        if self.parent_id:
+            if self.parent and self.parent.project_id:
+                # Автоматически устанавливаем проект от родителя
                 self.project_id = self.parent.project_id
-            elif self.project_id != self.parent.project_id:
-                raise ValidationError({
-                    "__all__": "Проект дочернего должен совпадать с проектом родителя"
-                })
+            else:
+                raise ValidationError("У родительского департамента не задан проект")
+        else:
+            # Для корневого департамента проект обязателен
+            if not self.project_id:
+                raise ValidationError("Для корневого департамента необходимо выбрать проект")
+        
         # ЗАПРЕТ менять родителя у существующего узла
         if self.pk:
             prev_parent_id = type(self).objects.only("parent_id").get(pk=self.pk).parent_id
@@ -201,6 +202,22 @@ class Department(models.Model):
                 })
 
     def save(self, *args, **kwargs):
+        """Автоматическое наследование проекта от родителя"""
+        # Если есть родитель и нет проекта - наследуем
+        if self.parent_id and not self.project_id:
+            if self.parent and self.parent.project_id:
+                self.project_id = self.parent.project_id
+            else:
+                # Если у родителя тоже нет проекта - ошибка
+                from django.core.exceptions import ValidationError
+                raise ValidationError("Родительский департамент должен иметь проект")
+        
+        # Если есть родитель - проект должен совпадать
+        if self.parent_id and self.project_id and self.parent:
+            if self.project_id != self.parent.project_id:
+                from django.core.exceptions import ValidationError
+                raise ValidationError("Проект поддепартамента должен совпадать с проектом родителя")
+        
         self.full_clean()
         return super().save(*args, **kwargs)
 
@@ -511,7 +528,7 @@ class DepartmentMember(models.Model):
 
 
 class RawUpdate(models.Model):
-    """Логирование сырых обновлений от Telegram"""
+    """Логирование сырых обновлений от Telegram (таблица создается ботом)"""
     chat_id = models.BigIntegerField()
     message_id = models.BigIntegerField(null=True, blank=True)
     user_id = models.BigIntegerField(null=True, blank=True)
@@ -522,12 +539,8 @@ class RawUpdate(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
+        managed = False  # Django не управляет этой таблицей
         db_table = 'raw_updates'
-        indexes = [
-            models.Index(fields=['chat_id', 'created_at'], name='idx_raw_chat_created'),
-            models.Index(fields=['chat_id', 'message_id'], name='idx_raw_chat_msg'),
-            models.Index(fields=['created_at'], name='idx_raw_created'),
-        ]
         ordering = ['-created_at']
         verbose_name = "Raw Update"
         verbose_name_plural = "Raw Updates"

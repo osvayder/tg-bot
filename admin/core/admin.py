@@ -216,6 +216,25 @@ class TgGroupAdmin(admin.ModelAdmin):
     list_filter = ("project", "profile", "created_at")
     search_fields = ("title", "telegram_id")
     inlines = [ForumTopicInline]
+    actions = ["sync_members_from_logs"]
+    
+    def sync_members_from_logs(self, request, queryset):
+        """Ручная синхронизация участников из логов"""
+        total_synced = 0
+        for group in queryset:
+            if group.project_id and group.telegram_id:
+                default_role, _ = Role.objects.get_or_create(
+                    name="Member",
+                    defaults={'can_assign': False, 'can_close': False}
+                )
+                count = self._sync_project_members_from_logs(
+                    project_id=group.project_id,
+                    chat_ids=[group.telegram_id],
+                    default_role=default_role
+                )
+                total_synced += count
+        self.message_user(request, f"Синхронизировано {total_synced} участников")
+    sync_members_from_logs.short_description = "Синхронизировать участников из логов"
 
     def profile_badge(self, obj):
         return str(obj.profile) if obj.profile else "—"
@@ -250,42 +269,53 @@ class TgGroupAdmin(admin.ModelAdmin):
     def _sync_project_members_from_logs(self, project_id: int, chat_ids: list[int], default_role: Role | None):
         if not chat_ids:
             return 0
-        # 1) собрать tg user_id из логов
+        # 1) собрать tg user_id и username из логов
         try:
             with connection.cursor() as cur:
                 cur.execute("""
-                    SELECT DISTINCT ru.user_id
+                    SELECT DISTINCT ru.user_id, ru.username
                     FROM raw_updates ru
                     WHERE ru.chat_id = ANY(%s)
+                    AND ru.user_id IS NOT NULL
                 """, (chat_ids,))
-                tg_user_ids = [row[0] for row in cur.fetchall()]
+                user_data = cur.fetchall()
         except Exception:
             # Если таблица raw_updates не существует - пропускаем
             return 0
 
-        if not tg_user_ids:
+        if not user_data:
             return 0
 
-        # 2) найти соответствующих core_user
-        user_qs = User.objects.filter(telegram_id__in=tg_user_ids).only("id")
-        user_ids = list(user_qs.values_list("id", flat=True))
-        if not user_ids:
-            return 0
-
-        # 3) idempotent upsert через ORM (соблюдаем уникальность (project,user,role))
+        # 2) создать или найти пользователей
         created = 0
         with transaction.atomic():
-            for uid in user_ids:
-                if default_role:
-                    # Идентифицируем по роли, чтобы не создавать дублей на одну и ту же роль
-                    pm, was_created = ProjectMember.objects.get_or_create(
-                        project_id=project_id,
-                        user_id=uid,
-                        role=default_role,
-                        defaults={}
+            for tg_user_id, username in user_data:
+                # Найти или создать User
+                user, user_created = User.objects.get_or_create(
+                    telegram_id=tg_user_id,
+                    defaults={
+                        'username': username or f'user_{tg_user_id}',
+                        'status': 'active'
+                    }
+                )
+                
+                # Добавить в ProjectMember (роль обязательна!)
+                if not default_role:
+                    # Если роль не передана - создаем дефолтную
+                    default_role, _ = Role.objects.get_or_create(
+                        name='Member',
+                        defaults={'can_assign': False, 'can_close': False}
                     )
-                    if was_created:
-                        created += 1
+                
+                pm, was_created = ProjectMember.objects.get_or_create(
+                    project_id=project_id,
+                    user_id=user.id,
+                    role=default_role,
+                    defaults={}
+                )
+                    
+                if was_created:
+                    created += 1
         return created
 
     def save_model(self, request, obj: TgGroup, form, change):
@@ -295,13 +325,19 @@ class TgGroupAdmin(admin.ModelAdmin):
 
         # После сохранения: если у группы есть проект — подтянуть ProjectMember из логов
         if obj.project_id and obj.telegram_id:
-            # Базовая роль по умолчанию (опционально): пытаемся найти "Member"
-            default_role = Role.objects.filter(name__iexact="Member").first()
-            self._sync_project_members_from_logs(
+            # Базовая роль по умолчанию - создаем если нет
+            default_role, _ = Role.objects.get_or_create(
+                name="Member",
+                defaults={'can_assign': False, 'can_close': False}
+            )
+            created_count = self._sync_project_members_from_logs(
                 project_id=obj.project_id,
                 chat_ids=[obj.telegram_id],
                 default_role=default_role
             )
+            if created_count > 0:
+                from django.contrib import messages
+                messages.success(request, f"Синхронизировано {created_count} участников из группы")
 
 
 # ===================== Инлайны для пользователей =====================
@@ -451,7 +487,7 @@ class UserAdmin(admin.ModelAdmin):
 
     list_display = ("__str__", "telegram_id", "status")
     list_filter = ("status",)
-    search_fields = ("username", "first_name", "last_name", "telegram_id")
+    search_fields = ("username", "first_name", "last_name", "telegram_id")  # Важно для автокомплита!
 
     def summary_html(self, obj: User):
         # Проекты
@@ -627,7 +663,7 @@ class UserAdmin(admin.ModelAdmin):
 @admin.register(Role)
 class RoleAdmin(admin.ModelAdmin):
     list_display = ("name", "can_assign", "can_close")
-    search_fields = ("name",)
+    search_fields = ("name",)  # Необходимо для автокомплита
 
 
 # ===================== Инлайны для департаментов =====================
@@ -657,27 +693,58 @@ class ChildInlineFormSet(BaseInlineFormSet):
 class ChildDepartmentInline(admin.TabularInline):
     model = Department
     fk_name = "parent"
-    form = ChildDepartmentForm
-    fields = ("name", "lead_role")
+    fields = ("name", "lead_role")  # НЕ показываем project - он наследуется
     show_change_link = True
-    extra = 1  # Показываем пустую строку для добавления
-    can_delete = False
+    extra = 0  # Убираем пустую форму - будем использовать кнопку "Добавить"
+    can_delete = True
     verbose_name = "Поддепартамент"
     verbose_name_plural = "Поддепартаменты"
     
+    # ВАЖНО: показываем только существующие поддепартаменты
+    # Для создания новых используйте кнопку "Добавить поддепартамент"
+    
+    def get_formset(self, request, obj=None, **kwargs):
+        """Передаем проект родителя в формы"""
+        formset = super().get_formset(request, obj, **kwargs)
+        
+        class InlineFormSet(formset):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                # Устанавливаем проект от родителя для всех форм
+                if obj and obj.project_id:
+                    for form in self.forms:
+                        if not form.instance.pk:  # Только для новых объектов
+                            form.instance.project_id = obj.project_id
+                            form.instance.parent_id = obj.id
+                        
+            def save_new(self, form, commit=True):
+                """При сохранении новых поддепартаментов"""
+                instance = form.instance
+                if self.instance and self.instance.project_id:
+                    instance.project_id = self.instance.project_id
+                    instance.parent_id = self.instance.id
+                return super().save_new(form, commit)
+                
+        return InlineFormSet
+    
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        """Убираем возможность редактировать FK поля"""
+        f = super().formfield_for_foreignkey(db_field, request, **kwargs)
+        # Убираем иконки добавления/изменения  
+        # ВАЖНО: убираем иконку "+" чтобы не путать пользователя
+        if hasattr(f.widget, 'can_add_related'):
+            f.widget.can_add_related = False
+        if hasattr(f.widget, 'can_change_related'):
+            f.widget.can_change_related = False
+        if hasattr(f.widget, 'can_delete_related'):
+            f.widget.can_delete_related = False
+        return f
+    
     def has_add_permission(self, request, obj=None):
-        # Разрешаем добавление только для департаментов 1-го уровня
+        """Разрешаем добавление только для департаментов 1-го уровня"""
         if obj and obj.parent_id is None:
             return True
         return False
-    
-    # выключаем FK-иконки (плюс/карандаш/глаз)
-    def formfield_for_foreignkey(self, db_field, request, **kwargs):
-        f = super().formfield_for_foreignkey(db_field, request, **kwargs)
-        for attr in ("can_add_related", "can_change_related", "can_view_related", "can_delete_related"):
-            if hasattr(f.widget, attr):
-                setattr(f.widget, attr, False)
-        return f
 
 # ---------- Редактируемый инлайн для листовых узлов ----------
 from django.db import connection
@@ -688,40 +755,38 @@ class DepartmentMemberInline(admin.TabularInline):
     extra = 0
     verbose_name_plural = "Состав департамента"
 
-    _parent_obj = None
-    _show_all_pm = False
-
     def get_formset(self, request, obj=None, **kwargs):
         self._parent_obj = obj
-        # прошлое имя параметра оставим для обратной совместимости
-        self._show_all_pm = (request.GET.get("show_chat_users") == "1") or (request.GET.get("show_all_pm") == "1")
         return super().get_formset(request, obj, **kwargs)
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
-        if db_field.name == "user" and self._parent_obj:
-            project_id = getattr(self._parent_obj, "project_id", None)
-            if project_id:
-                if self._show_all_pm:
-                    # ПОКАЗАТЬ ВСЕХ ProjectMember проекта
-                    qs = User.objects.filter(projectmember__project_id=project_id).distinct()
-                else:
-                    # ТОЛЬКО тех, кто уже состоит в департаментах этого проекта
-                    qs = User.objects.filter(
-                        departmentmember__department__project_id=project_id
-                    ).distinct()
-                kwargs["queryset"] = qs.order_by("username", "first_name", "last_name")
-        
-        if db_field.name == "role" and self._parent_obj:
-            project_id = getattr(self._parent_obj, "project_id", None)
-            if project_id:
-                kwargs["queryset"] = (Role.objects
-                              .filter(projectmember__project_id=project_id)
-                              .distinct().order_by("name"))
-        
-        # Отключаем FK-иконки
         f = super().formfield_for_foreignkey(db_field, request, **kwargs)
+        parent = getattr(self, "_parent_obj", None)
+
+        if db_field.name == "user":
+            if parent and parent.project_id:
+                # Пробуем получить участников проекта
+                project_members = User.objects.filter(
+                    projectmember__project_id=parent.project_id
+                ).distinct()
+                
+                # ВАЖНЫЙ FALLBACK: если участников нет - показываем ВСЕХ пользователей
+                if project_members.exists():
+                    f.queryset = project_members.order_by("username")
+                else:
+                    print(f"DEBUG: No ProjectMembers for project_id={parent.project_id}, showing ALL users")
+                    f.queryset = User.objects.all().order_by("username")
+            else:
+                f.queryset = User.objects.all().order_by("username")
+
+        if db_field.name == "role":
+            # Аналогично — если надо сужать роли по проекту
+            f.queryset = Role.objects.all().order_by("name")
+
+        # выключим иконки добавления связей в инлайне
         for attr in ("can_add_related","can_change_related","can_view_related","can_delete_related"):
-            if hasattr(f.widget, attr): setattr(f.widget, attr, False)
+            if hasattr(f.widget, attr): 
+                setattr(f.widget, attr, False)
         return f
 
 
@@ -831,16 +896,39 @@ class AllMembersInline(admin.TabularInline):
 from django.urls import path
 from django.http import HttpResponseRedirect
 
+class DepartmentAdminForm(forms.ModelForm):
+    class Meta:
+        model = Department
+        fields = "__all__"
+
+    def clean(self):
+        cleaned = super().clean()
+        parent = cleaned.get("parent")
+        project = cleaned.get("project")
+        if parent:
+            # наследуем проект от родителя и не позволяем поменять вручную
+            cleaned["project"] = getattr(parent, "project", None)
+            if cleaned["project"] is None:
+                raise forms.ValidationError("У родителя не задан проект — уточните данные.")
+        else:
+            if not project:
+                raise forms.ValidationError("Для корневого департамента необходимо выбрать проект.")
+        return cleaned
+
 @admin.register(Department)
 class DepartmentAdmin(admin.ModelAdmin):
+    form = DepartmentAdminForm
     list_display = ("name", "project", "children_badge")
     list_filter = ("project",)
     search_fields = ("name",)
+    
+    class Media:
+        js = ('admin/js/department_inline_fix.js',)
     # базовые поля для change-view
     fields = ("project", "name", "parent", "lead_role")
     autocomplete_fields = ("project", "parent", "lead_role")
     # используем свой шаблон change_form, чтобы показать кнопки
-    change_form_template = "admin/core/department/change_form.html"
+    # change_form_template = "admin/core/department/change_form.html"  # Отключаем пока нет шаблона
 
     # ====== helpers контекста ======
     def _is_add(self, obj): 
@@ -857,31 +945,13 @@ class DepartmentAdmin(admin.ModelAdmin):
     # ====== ограничение выбора родителя ======
     def get_form(self, request, obj=None, **kwargs):
         request._current_department_obj = obj  # прокинем текущий объект в formfield_for_foreignkey
-        return super().get_form(request, obj, **kwargs)
+        form = super().get_form(request, obj, **kwargs)
+        # если есть родитель — поле project делаем readonly
+        if 'project' in form.base_fields and obj and obj.parent_id:
+            form.base_fields['project'].disabled = True
+        return form
 
-    def formfield_for_foreignkey(self, db_field, request, **kwargs):
-        if db_field.name == "parent":
-            qs = Department.objects.filter(parent__isnull=True)  # только корневые
-            obj = getattr(request, "_current_department_obj", None)
-            if obj and obj.pk:
-                # нельзя выбрать самого себя в качестве родителя
-                qs = qs.exclude(pk=obj.pk)
-            kwargs["queryset"] = qs
-            # запретить «плюсик» добавления департамента из этого поля
-            formfield = super().formfield_for_foreignkey(db_field, request, **kwargs)
-            try:
-                formfield.widget.can_add_related = False
-            except Exception:
-                pass
-            return formfield
-        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
-    # Валидация на уровне админки (дополнительно к model.clean)
-    def save_model(self, request, obj, form, change):
-        if obj.parent and obj.parent.parent_id:
-            from django.core.exceptions import ValidationError
-            raise ValidationError({'parent': 'Запрещено создавать 3-й уровень поддепартаментов.'})
-        return super().save_model(request, obj, form, change)
 
     # ====== компоновка полей ======
     def get_fields(self, request, obj=None):
@@ -914,8 +984,8 @@ class DepartmentAdmin(admin.ModelAdmin):
         if parent_id:
             try:
                 parent = Department.objects.get(pk=parent_id)
-                init["parent"] = parent.pk
-                init["project"] = parent.project_id
+                init["parent"] = parent
+                init["project"] = parent.project  # Передаем объект, не ID
             except Department.DoesNotExist:
                 pass
         return init
@@ -924,15 +994,32 @@ class DepartmentAdmin(admin.ModelAdmin):
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         # родитель: скрываем выпадашку в add-root (поле исключено), 
         # а в add-child ограничиваем ровно одним выбранным родителем
-        if db_field.name == "parent" and self._is_add_child(request, None):
+        if db_field.name == "parent":
             parent_id = request.GET.get("parent")
-            kwargs["queryset"] = Department.objects.filter(pk=parent_id)
+            if parent_id:
+                try:
+                    parent = Department.objects.get(pk=parent_id)
+                    kwargs["queryset"] = Department.objects.filter(pk=parent_id)
+                    kwargs["initial"] = parent  # ВАЖНО: устанавливаем начальное значение
+                except Department.DoesNotExist:
+                    kwargs["queryset"] = Department.objects.filter(parent__isnull=True)
+            else:
+                kwargs["queryset"] = Department.objects.filter(parent__isnull=True)
         # глобальный add-root: поле parent скрыто (его нет в fields), 
         # но на change-view можно показывать любое дерево в пределах проекта
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
     # жёстко фиксируем связки при сохранении
     def save_model(self, request, obj, form, change):
+        # Валидация на уровне админки
+        if obj.parent and obj.parent.parent_id:
+            from django.core.exceptions import ValidationError
+            raise ValidationError({'parent': 'Запрещено создавать 3-й уровень поддепартаментов.'})
+        
+        # Перестраховка: при сохранении поддепартамента — унаследовать проект
+        if obj.parent_id and not obj.project_id:
+            obj.project = obj.parent.project
+        
         parent_id = request.GET.get("parent")
         if not change and parent_id:
             parent = Department.objects.get(pk=parent_id)
@@ -962,6 +1049,8 @@ class DepartmentAdmin(admin.ModelAdmin):
 
     # ====== инлайны: как и договорились ранее ======
     def get_inline_instances(self, request, obj=None):
+        # На странице «добавления» (obj=None) инлайны скрываем — сначала сохраняем,
+        # затем редактируем с корректно определённым project.
         if not obj:
             return []
         is_root = (obj.parent_id is None)

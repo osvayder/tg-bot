@@ -71,3 +71,14 @@ coverage.xml
 .env
 .env.*
 !.env.example
+
+# Test files
+.env.test
+*.session
+*.session-journal
+test_session.session
+.test_deps_installed
+htmlcov/
+.coverage
+.pytest_cache/
+

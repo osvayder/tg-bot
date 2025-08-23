@@ -69,14 +69,16 @@ async def log_raw_update(msg: Message):
         }
         conn = await get_conn()
         # Try to upsert Telegram group metadata for per-group settings
+        # НЕ создаем проект автоматически - только обновляем название если группа уже существует
         try:
             if msg.chat and msg.chat.type in ("group", "supergroup") and compact["chat_id"]:
                 await conn.execute(
                     """
-                    INSERT INTO core_tggroup (telegram_id, title, created_at)
-                    VALUES ($1, $2, NOW())
+                    INSERT INTO core_tggroup (telegram_id, title, created_at, project_id)
+                    VALUES ($1, $2, NOW(), NULL)
                     ON CONFLICT (telegram_id)
                     DO UPDATE SET title = EXCLUDED.title
+                    -- НЕ трогаем project_id при обновлении
                     """,
                     compact["chat_id"],
                     getattr(msg.chat, "title", ""),
