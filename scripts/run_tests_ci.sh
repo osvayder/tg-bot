@@ -28,25 +28,32 @@ fi
 
 case "$target" in
   unit)
-    # Django env for pytest-django
-    export PYTHONPATH="${PYTHONPATH:-.}:$(pwd):$(pwd)/admin"
+    # Django env for pytest-django - critical for tests to work
+    export PYTHONPATH="/app:/app/admin:${PYTHONPATH:-.}"
     export DJANGO_SETTINGS_MODULE="settings"
     
-    echo "Environment setup:"
+    echo "=== Environment setup ==="
     echo "  PYTHONPATH=$PYTHONPATH"
     echo "  DJANGO_SETTINGS_MODULE=$DJANGO_SETTINGS_MODULE"
     echo "  Working directory: $(pwd)"
     echo "  Requirements file: ${REQ_FILE:-<minimal>}"
+    echo "  Python version: $(python --version)"
     
-    echo "Installing unit test dependencies..."
+    echo "=== Installing dependencies ==="
     if [ -n "$REQ_FILE" ]; then 
+      echo "Installing from $REQ_FILE..."
       pip install -q -r "$REQ_FILE"
     else 
+      echo "Installing minimal dependencies..."
       pip install -q pytest pytest-asyncio==0.21.0 pytest-django
     fi
     
-    echo "Running unit tests..."
-    python -m pytest tests/unit -vv -rA --maxfail=1 --disable-warnings
+    # Verify Django can be imported
+    echo "=== Verifying Django setup ==="
+    python -c "import django; print(f'Django {django.__version__} imported successfully')" || true
+    
+    echo "=== Running unit tests ==="
+    cd /app && python -m pytest tests/unit -vv -rA --maxfail=1 --disable-warnings --tb=short
     ;;
     
   integration)
