@@ -4,7 +4,7 @@ set -Eeuo pipefail
 # Simple CI test runner that runs inside container
 # Usage: docker compose exec admin bash scripts/run_tests_ci.sh <target>
 
-export PYTHONPATH="${PYTHONPATH:-.}:/app"
+export PYTHONPATH="${PYTHONPATH:-.}:/app:/app/admin"
 
 target="${1:-unit}"
 
@@ -12,39 +12,74 @@ echo "Running tests: $target"
 echo "Python path: $PYTHONPATH"
 echo "Current directory: $(pwd)"
 
+# Find requirements file (try multiple locations)
+REQ_FILE=""
+for c in requirements-test.txt test-requirements.txt admin/requirements-test.txt; do
+  if [ -f "$c" ]; then
+    REQ_FILE="$c"
+    echo "Found requirements file: $REQ_FILE"
+    break
+  fi
+done
+
+if [ -z "$REQ_FILE" ]; then
+  echo "No requirements file found, will use minimal dependencies"
+fi
+
 case "$target" in
   unit)
+    # Django env for pytest-django
     export PYTHONPATH="${PYTHONPATH:-.}:$(pwd):$(pwd)/admin"
-    export DJANGO_SETTINGS_MODULE="admin.settings"
+    export DJANGO_SETTINGS_MODULE="settings"
+    
     echo "Environment setup:"
     echo "  PYTHONPATH=$PYTHONPATH"
     echo "  DJANGO_SETTINGS_MODULE=$DJANGO_SETTINGS_MODULE"
     echo "  Working directory: $(pwd)"
+    echo "  Requirements file: ${REQ_FILE:-<minimal>}"
+    
     echo "Installing unit test dependencies..."
-    pip install -q -r admin/requirements-test.txt 2>/dev/null || pip install -q pytest pytest-asyncio==0.21.0 pytest-django
+    if [ -n "$REQ_FILE" ]; then 
+      pip install -q -r "$REQ_FILE"
+    else 
+      pip install -q pytest pytest-asyncio==0.21.0 pytest-django
+    fi
+    
     echo "Running unit tests..."
-    python -m pytest tests/unit -vv -rA --maxfail=1 --disable-warnings || {
-      echo "Tests failed with exit code $?"
-      echo "Retrying with minimal config..."
-      python -m pytest tests/unit -vv -rA --maxfail=1 --disable-warnings --no-cov -p no:django || true
-      exit 1
-    }
+    python -m pytest tests/unit -vv -rA --maxfail=1 --disable-warnings
     ;;
+    
   integration)
     echo "Installing integration test dependencies..."
-    pip install -q -r admin/requirements-test.txt 2>/dev/null || pip install -q pytest pytest-django pytest-playwright
+    if [ -n "$REQ_FILE" ]; then 
+      pip install -q -r "$REQ_FILE"
+    else 
+      pip install -q pytest pytest-django pytest-playwright
+    fi
+    
+    # Browsers and system deps for Playwright (required, no error ignore)
+    echo "Installing Playwright browsers..."
     python -m playwright install --with-deps
+    
     echo "Running integration tests..."
     python -m pytest tests/integration tests/e2e/admin -v
     ;;
+    
   e2e-telegram)
     : "${ENABLE_E2E_TELEGRAM:=0}"
     [ "$ENABLE_E2E_TELEGRAM" = "1" ] || { echo "E2E Telegram disabled"; exit 0; }
+    
     echo "Installing E2E dependencies..."
-    pip install -q -r admin/requirements-test.txt 2>/dev/null || pip install -q pytest pytest-django pyrogram
+    if [ -n "$REQ_FILE" ]; then 
+      pip install -q -r "$REQ_FILE"
+    else 
+      pip install -q pytest pytest-django pyrogram
+    fi
+    
     echo "Running E2E Telegram tests..."
     python -m pytest tests/e2e/telegram -v
     ;;
+    
   *)
     echo "Unknown target: $target"
     exit 1
