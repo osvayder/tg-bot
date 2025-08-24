@@ -81,3 +81,8 @@ test_session.session
 htmlcov/
 .coverage
 .pytest_cache/
+
+# Test credentials (NEVER COMMIT!)
+.env.test
+*.session
+session_string.txt
