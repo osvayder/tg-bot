@@ -28,7 +28,7 @@ fi
 
 case "$target" in
   unit)
-    # Django env for pytest-django - critical for tests to work
+    # Django env for pytest-django - CRITICAL CONFIG
     export PYTHONPATH="/app:/app/admin:${PYTHONPATH:-.}"
     export DJANGO_SETTINGS_MODULE="settings"
     
@@ -36,24 +36,29 @@ case "$target" in
     echo "  PYTHONPATH=$PYTHONPATH"
     echo "  DJANGO_SETTINGS_MODULE=$DJANGO_SETTINGS_MODULE"
     echo "  Working directory: $(pwd)"
-    echo "  Requirements file: ${REQ_FILE:-<minimal>}"
     echo "  Python version: $(python --version)"
     
     echo "=== Installing dependencies ==="
-    if [ -n "$REQ_FILE" ]; then 
-      echo "Installing from $REQ_FILE..."
-      pip install -q -r "$REQ_FILE"
-    else 
+    # Try to use unified requirements file first
+    if [ -f "admin/requirements-test.txt" ]; then
+      echo "Installing from admin/requirements-test.txt..."
+      pip install -q -r admin/requirements-test.txt
+    elif [ -f "requirements-test.txt" ]; then
+      echo "Installing from requirements-test.txt..."
+      pip install -q -r requirements-test.txt
+    else
       echo "Installing minimal dependencies..."
       pip install -q pytest pytest-asyncio==0.21.0 pytest-django
     fi
     
-    # Verify Django can be imported
+    # Verify Django setup
     echo "=== Verifying Django setup ==="
-    python -c "import django; print(f'Django {django.__version__} imported successfully')" || true
+    python -c "import sys; print('Python path:', sys.path[:3])" || true
+    python -c "import django; print(f'Django {django.__version__} OK')" || echo "Django import failed"
+    python -c "from django.conf import settings; print(f'Settings module: {settings.SETTINGS_MODULE if hasattr(settings, \"SETTINGS_MODULE\") else \"OK\"}')" || echo "Settings not configured"
     
     echo "=== Running unit tests ==="
-    cd /app && python -m pytest tests/unit -vv -rA --maxfail=1 --disable-warnings --tb=short
+    cd /app && python -m pytest tests/unit -vv -rA --maxfail=1 --tb=short --disable-warnings
     ;;
     
   integration)
